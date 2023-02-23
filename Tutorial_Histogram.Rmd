@@ -1,0 +1,159 @@
+---
+title: "How to Create a Probability Density Plot with Probabilities for Every Level"
+output: html_document
+---
+
+The gpa1 dataset in the Wooldridge package has data on collegiate academic performance, including ACT scores. I was interested in finding the probabilty and percentile of each ACT score, then plotting it as a discreet probability distribution.
+
+However, this is actually not a straight forward thing to do in R, at least with the hist() function and a cursory Google search. Hist() automatically creates arbitrary bins that contain multiple levels, even if the input variable is discreet without many levels. So multiple ACT scores get binned into the same bar as an aggregated probability, which isn't very meaningful.
+
+In this tutorial, we will go over how to manually create bins in hist() that create probabilities and bars for each individual level of a discreet variable.
+While we're at it, we are going to use this example to cover some other useful operations for data analysis in R including: how to extract an element of a list into a vector, creating a new variable of cumulative probabilities, recoding probabilities as percentages and percentiles, creating a function, and how to merge data sets together.
+
+It is also done entirely in Base R. A lot of resources today make use of "Tidyverse", which is touted for being easier to learn that Base R. But I think the standardization of Tidyverse is an enormous mistake. While Tidyverse is easier to learn, it comes at a cost of reduced flexibility. Its functions are like this black box which belies more  under the hood programming. So when your code doesn't work (or you can't figure it what to do in the first place), which becomes more likely as you try to do complex and unique data manipulations, its harder to understand why.
+Base R has a steep learning curve, but once you get it, it is enormously flexible. There is a clear logic to how Base R functions process various data types, so it is relatively easy to trouble shoot issues. I feel like this is true even for Base R Graphics. GGplot's only real advantage in this regard is that basic graphs look a lot better, but customized graph building is WAY better with Base R.
+Flexibility is what made R great in the first place, so I have a hard time understanding what the point even is of Tidyverse R compared to some other statistical application. 
+Sources like R For Data Science provide a nice overview of practical data analysis topics with Tidyverse, which is good for getting going. It would not be that much harder to learn from a comparable text, but unfortunately, that book doesn't exist, or I am not aware of it. At best, treat Tidyverse as training wheels to get the job done while you figure out how to use Base R like a big boy programmer.
+
+
+```{r}
+library(wooldridge)
+
+
+dat<-gpa1
+```
+
+
+The first thing we are going to do is manually set the size of the bins by setting the parameter "breaks" = to a vector of cutoff points. 
+We also set the parameter "probability=T", which gives us the probability of each bin on the y axis, rather than the frequency.
+
+A somewhat tricky thing to keep in mind with setting up intervals is that the values are allocated to bins preferentially from left to right, when a value is represented in multiple bins. For instance, given the intervals (16-17) and (17-18), all of the 17s go into (16-17) rather than (17-18), because (16-17) is the first bin accepting 17s, so they all go there. Likewise, all of the 16s go into (16-17) because it is the first bin that they can be accepted into
+
+```{r} 
+b<-c(15, 16, 17, 18, 19, 20, 21, 22, 23 ,24, 25, 26, 27, 28, 29, 30, 31, 32, 33)
+
+
+h<-hist(dat$ACT, probability=T, breaks=b, xlab="ACT", main = "ACT Histogram")
+```
+
+As you can see, each bar represents a single ACT score, and there are spaces representing ACT scores with no observations.
+
+Now we are going to move on to building a data frame of ACT scores and their associated probabilities.
+
+One of the things that makes R so versatile is that the sort of meta output of the base R functions are stored as vectors in lists that can then be extracted for other purposes. So what you do is define the output of function as an object in the local environment, and from there you can check out its elements and extract them. In this case we can define the output of hist() as an object and extract the density vector, which is a vector of probabilities. 
+
+```{r}
+h
+
+```
+
+What we have here is a list of vectors containing the meta-information of a hist() when it is coerced into an object to the local environment. $density is a vector of probabilities associated with each bin. Because we have set up the bins to represent individual levels, these probabilities represent the individual ACT scores.
+
+We will now create a data frame of these probabilities. Will will also create a vector of cumulative probabilities, which we will use to create variable representing percentile rank.
+
+```{r }
+dat2<-as.data.frame(h$density)
+names(dat2)<-"probability" #equivalent to names(dat2)[1]<-"probability"
+
+
+dat2.1<-as.data.frame(c(16:33))
+names(dat2.1)<-"ACT"
+
+dat2<-cbind(dat2, dat2.1)
+rm(dat2.1)
+
+dat2$probability<-round(dat2$probability, 3)
+
+head(dat2,5)
+
+```
+
+Now that we have variables for probability and cumulative probability, we will transform them into percentages and percentiles, which are easier to interpret.
+
+```{r}
+dat2$probability<-round(dat2$probability, 3)
+
+dat2$percentage<-paste(dat2$probability*100, "%", sep="")
+
+dat2$cumulative_probability<-round(cumsum(dat2$probability), 3)
+
+dat2$percentile<-paste(dat2$cumulative_probability*100, "th", sep=" ")
+
+
+dat2<-dat2[,c(2,1,3,4,5)]
+
+```
+
+Now let's build a function that will yield the probability and percentile associated with ACT score. 
+
+```{r}
+ACT_Prob<-function(score){
+  dat2[dat2$ACT==score, c("percentage", "percentile")]}
+
+
+ACT_Prob(27)
+
+```
+
+For the hell of it, lets practice merging the data frame we created with the original data frame. Essentially, you add variables from one data frame to another by matching observations between data frames with a key variable contained in both data frames. In this case, ACT is the key variable. We are going to add the probability variables from dat2 to dat1. This is a case of "one to many." 
+
+>[This webpage](https://statisticsglobe.com/fastest-way-merge-data-frames-r) is gives a nice, simple overview of how to do different types of merging.
+
+```{r}
+dat1<-merge(dat, dat2, by="ACT", all.x = T)
+
+dat1<-dat1[,c(1,30:33,2:29)]
+
+head(dat1[,1:8], 10)
+
+```
+
+Another interesting thing we can do is group dat1 by ACT, and then find average colege GPA (colGPA), given ACT. Essentially what we are doing when we aggegate is splitting the data into groups and then performing some function within those groups. So we get an average cGPA for each level of ACT.
+
+```{r}
+
+dat3 = aggregate(dat1[15],
+                by = list(dat1$ACT),
+                FUN = mean, na.rm=T)
+                
+names(dat3)[1]<-"ACT"
+
+head(dat3, 10)
+
+```
+*If I didn't subset dat1, then this code would have given me averages for each variable in dat1, grouped according to ACT.*
+  
+
+
+Lets get a sense of what the data looks like by plotting aggregate cGPA against ACT, and then plotting a regression line over that data.
+
+
+```{r}
+
+plot(dat3$ACT, dat3$colGPA, main="Average College GPA Conditional on ACT Score", xlab="ACT", ylab="colGPA")
+
+
+abline(lm(colGPA~ACT, data=dat3), col="blue")
+
+```
+
+*Keep in mind that isn't a proper regression because it gives each observation of ACT equal weight.*
+
+***
+
+There are other ways of creating a data frame of ACT score probabilities that are less efficient and require more code than what we did here. However, they are good exercises if you are new to R. Below are some suggested exercises. Feel free to email me at benmahalik@gmail.com for the answers or if you get stuck. The last one is tricky.
+
+1) Create a vector of probabilities from aggregating the dat1 by ACT and using a formula for probability.
+
+2) How would you create a ordered vector of individual ACT scores based off of the dat$ACT?
+
+3) In the previous problem you vector will not contain levels for the ACT scores that were not observed: 17,18, and 32. 
+How would you insert those levels into the vector? 
+
+4) The density() function estimates a continuous probability density curve for its input data. Like hist(), it produces probabilities for the input data, except it inputes (creates) a lot of observations for x and y (over 500 in our case), and smoothes out the probabilities as though 
+dat$ ACT were a continuous variable. Another way that it it is similar to hist() is it produces this under the hood meta data that you can extract into vectors. The first two vectors in densities outout list, are variables of imputed values of your input variable, and the the associated probabilities. 
+Extract these vectors, and figure out a function that would allow you to select the values of density(dat$ACT)[1] closest to integer values (e.g. 26.99), and the associated estimated probabilty. Create a data frame based off of this, recode ACT in a way that makes sense, and follow the other steps of the original tutorial.
+
+5) Repeat the example of adding a regression line to a plot, but use the data from dat1 instead of ACT_cGPA. Plot the lines from both regressions. Are they the same or different? Why? 
+
+6) Create a function that takes two ACT values as inputs for an interval, and tells you what the probability is of getting an ACT score in that interval. 
